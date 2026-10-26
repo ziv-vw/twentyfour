@@ -3,7 +3,6 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="claude:viewport-fit-sides" content="cover">
 <title>Twenty-Four</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600&display=swap">
 <style>
@@ -115,7 +114,8 @@ h1 em{font-style:italic;color:var(--accent)}
 .opt input{accent-color:var(--accent)}
 
 footer{color:var(--ink-soft);font-size:.8rem;line-height:1.7;text-align:center;text-wrap:balance}
-footer kbd{font:inherit;color:var(--ink);border-bottom:1px solid var(--hair);padding:0 2px}
+.keys{color:var(--ink-soft);font-size:.85rem;line-height:1.7;margin:10px 0 0;text-wrap:pretty}
+.keys kbd,footer kbd{font:inherit;color:var(--ink);border-bottom:1px solid var(--hair);padding:0 2px}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 @media (max-width:420px){
@@ -127,8 +127,9 @@ footer kbd{font:inherit;color:var(--ink);border-bottom:1px solid var(--hair);pad
 <div class="wrap">
   <div class="mast">
     <span class="eyebrow">A card puzzle</span>
-    <h1>Twenty-Four</h1>
+    <h1>Twenty-<em>Four</em></h1>
     <p class="lede">You're dealt four cards. Combine them with <b>+ &minus; &times; &divide;</b>, using each one exactly once, to land on <b>24</b>.</p>
+    <p class="keys">A&nbsp;=&nbsp;1, J&nbsp;=&nbsp;11, Q&nbsp;=&nbsp;12, K&nbsp;=&nbsp;13. Keys: <kbd>1</kbd>&ndash;<kbd>4</kbd> cards, <kbd>+ &minus; * /</kbd> operators, <kbd>u</kbd>&nbsp;undo, <kbd>n</kbd>&nbsp;new hand.<br></p>
   </div>
 
   <hr class="rule">
@@ -141,6 +142,7 @@ footer kbd{font:inherit;color:var(--ink);border-bottom:1px solid var(--hair);pad
       <span>Time <b id="s-time">0:00</b></span>
     </div>
     <div class="tright">
+      <span class="engine" id="engine"></span>
       <button class="theme-btn" id="theme" type="button">Switch theme</button>
     </div>
   </div>
@@ -164,7 +166,7 @@ footer kbd{font:inherit;color:var(--ink);border-bottom:1px solid var(--hair);pad
   <hr class="rule">
 
   <footer>
-    A&nbsp;=&nbsp;1, J&nbsp;=&nbsp;11, Q&nbsp;=&nbsp;12, K&nbsp;=&nbsp;13. Keys: <kbd>1</kbd>&ndash;<kbd>4</kbd> cards, <kbd>+ &minus; * /</kbd> operators, <kbd>u</kbd>&nbsp;undo, <kbd>n</kbd>&nbsp;new hand.
+    The solver is written in C and compiled to WebAssembly; the page is the UI around it.
   </footer>
 </div>
 
@@ -181,14 +183,27 @@ function is24(f){return f&&f.n===24*f.d;}
 function frText(f){return f.d===1?String(f.n):f.n+"/"+f.d;}
 function strip(e){return e&&e[0]==="("&&e[e.length-1]===")"?e.slice(1,-1):e;}
 
-// the solver is main.c compiled to wasm; read its answer string out of memory
-let E=null, engineName="loading";       // the wasm exports: solve, answer, memory
-function wasmSolution(a,b,c,d){
-  const len=E.solve(a,b,c,d);
-  if(len<0)return null;
-  const mem=new Uint8Array(E.memory.buffer), p=E.answer();
-  let s=""; for(let i=0;i<len;i++) s+=String.fromCharCode(mem[p+i]);
-  return s.replace(/\*/g,"×").replace(/\//g,"÷").replace(/-/g,"−"); // main.c prints - * /
+// the solver is the C module (wasm); the rest is just glue to it
+const OPS=["+","−","×","÷"];            // same order as the C: 0 + 1 - 2 * 3 /
+let wasmSolve=null, engineName="loading";
+const SHAPE=[
+  (n,o)=>"(("+n[0]+" "+o[0]+" "+n[1]+") "+o[1]+" "+n[2]+") "+o[2]+" "+n[3],
+  (n,o)=>"("+n[0]+" "+o[0]+" ("+n[1]+" "+o[1]+" "+n[2]+")) "+o[2]+" "+n[3],
+  (n,o)=>"("+n[0]+" "+o[0]+" "+n[1]+") "+o[1]+" ("+n[2]+" "+o[2]+" "+n[3]+")",
+  (n,o)=>n[0]+" "+o[0]+" (("+n[1]+" "+o[1]+" "+n[2]+") "+o[2]+" "+n[3]+")",
+  (n,o)=>n[0]+" "+o[0]+" ("+n[1]+" "+o[1]+" ("+n[2]+" "+o[2]+" "+n[3]+"))"
+];
+function decodeMove(code){
+  if(code<0)return null;
+  let o2=code%4;code=(code-o2)/4;
+  let o1=code%4;code=(code-o1)/4;
+  let o0=code%4;code=(code-o0)/4;
+  let shape=code%5;code=(code-shape)/5;
+  let pd=code%4;code=(code-pd)/4;
+  let pc=code%4;code=(code-pc)/4;
+  let pb=code%4;code=(code-pb)/4;
+  let pa=code%4;
+  return{perm:[pa,pb,pc,pd],shape:shape,ops:[o0,o1,o2]};
 }
 // fallback for anything that won't run the wasm
 function jsSolve(vals){
@@ -208,7 +223,14 @@ function jsSolve(vals){
 }
 // four card values -> a solution string, or null
 function solveCards(vals){
-  return E ? wasmSolution(vals[0],vals[1],vals[2],vals[3]) : jsSolve(vals);
+  if(wasmSolve){
+    const d=decodeMove(wasmSolve(vals[0],vals[1],vals[2],vals[3]));
+    if(!d)return null;
+    const n=d.perm.map(i=>vals[i]);
+    const o=d.ops.map(x=>OPS[x]);
+    return SHAPE[d.shape](n,o);
+  }
+  return jsSolve(vals);
 }
 
 // deck
@@ -370,11 +392,13 @@ async function boot(){
     if(!resp.ok)throw new Error("fetch "+resp.status);
     const buf=await resp.arrayBuffer();
     const {instance}=await WebAssembly.instantiate(buf,{});
-    if(typeof instance.exports.solve!=="function"||instance.exports.solve(3,3,8,8)<0)throw new Error("bad export");
-    E=instance.exports;engineName="C → WebAssembly";
+    const f=instance.exports.solve24;
+    if(typeof f!=="function"||f(3,3,8,8)<0)throw new Error("bad export");
+    wasmSolve=f;engineName="C → WebAssembly";
   }catch(e){
-    E=null;engineName="JavaScript (fallback)";
+    wasmSolve=null;engineName="JavaScript (fallback)";
   }
+  $("engine").innerHTML="engine: <b>"+engineName+"</b>";
   startDeal();
 }
 boot();
