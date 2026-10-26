@@ -142,7 +142,6 @@ footer{color:var(--ink-soft);font-size:.8rem;line-height:1.7;text-align:center;t
       <span>Time <b id="s-time">0:00</b></span>
     </div>
     <div class="tright">
-      <span class="engine" id="engine"></span>
       <button class="theme-btn" id="theme" type="button">Switch theme</button>
     </div>
   </div>
@@ -398,7 +397,7 @@ async function boot(){
   }catch(e){
     wasmSolve=null;engineName="JavaScript (fallback)";
   }
-  $("engine").innerHTML="engine: <b>"+engineName+"</b>";
+  console.info("24 engine:", engineName);
   startDeal();
 }
 boot();
