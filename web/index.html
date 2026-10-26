@@ -1,0 +1,376 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Twenty-Four</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600&display=swap">
+<style>
+/* Layout: editorial, left-aligned masthead over warm paper; the dealt cards are the
+   hero with a slight hand-dealt tilt; the solver is C compiled to WebAssembly. */
+:root{
+  --paper:#eeece4;--ink:#201e18;--ink-soft:#6c675b;--hair:#d6d1c4;
+  --accent:#34507e;--accent-soft:#8fa4c8;--good:#2f7d58;
+  --card:#fffdf7;--card-edge:#e7e0cf;--card-shadow:rgba(40,34,20,.22);
+  --suit-red:#b23127;--suit-black:#26231d;--card-ink:#2a2620;--card-ink-soft:#8c8678;
+  --font-display:"Instrument Serif",Georgia,"Times New Roman",serif;
+  --font-ui:"Hanken Grotesk",system-ui,-apple-system,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#15130f;--ink:#eae6dc;--ink-soft:#9a9488;--hair:#2e2a22;
+  --accent:#9db6e4;--accent-soft:#4a5a7a;--good:#5bbd8c;--card-shadow:rgba(0,0,0,.5);
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --paper:#15130f;--ink:#eae6dc;--ink-soft:#9a9488;--hair:#2e2a22;
+  --accent:#9db6e4;--accent-soft:#4a5a7a;--good:#5bbd8c;--card-shadow:rgba(0,0,0,.5);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--font-ui);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;}
+.wrap{max-width:640px;margin-inline:auto;
+  padding-left:max(20px,env(safe-area-inset-left,0px));
+  padding-right:max(20px,env(safe-area-inset-right,0px));
+  padding-block:clamp(22px,5vw,44px);
+  display:flex;flex-direction:column;gap:clamp(20px,4vw,30px);}
+
+.mast{display:flex;flex-direction:column;gap:3px}
+.eyebrow{font-size:.72rem;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-soft)}
+h1{font-family:var(--font-display);font-weight:400;font-size:clamp(2.7rem,11vw,4.2rem);
+  line-height:.86;margin:0;letter-spacing:.005em}
+h1 em{font-style:italic;color:var(--accent)}
+.lede{color:var(--ink-soft);font-size:.98rem;max-width:46ch}
+.lede b{color:var(--ink);font-weight:600}
+.rule{height:1px;background:var(--hair);border:0;margin:0}
+
+.topline{display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  font-size:.86rem;color:var(--ink-soft)}
+.scores{display:flex;gap:16px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.scores b{color:var(--ink);font-weight:600}
+.tright{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.engine{font-size:.72rem;letter-spacing:.03em;color:var(--ink-soft)}
+.engine b{color:var(--accent);font-weight:600}
+.theme-btn{font:inherit;color:var(--ink-soft);background:none;border:0;cursor:pointer;
+  padding:0;border-bottom:1px solid var(--hair)}
+.theme-btn:hover{color:var(--ink);border-color:var(--ink-soft)}
+
+.field{display:flex;flex-direction:column;gap:clamp(18px,4vw,26px);align-items:center}
+.board{display:flex;gap:clamp(10px,3vw,20px);flex-wrap:wrap;justify-content:center;align-items:center;
+  min-height:150px;padding:6px 0}
+.node{--rot:0deg;position:relative;width:92px;height:128px;border-radius:9px;cursor:pointer;
+  background:var(--card);border:1px solid var(--card-edge);color:var(--card-ink);
+  box-shadow:0 7px 18px -11px var(--card-shadow);transform:rotate(var(--rot));
+  transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease;
+  outline:2.5px solid transparent;outline-offset:3px}
+.node:hover{transform:rotate(var(--rot)) translateY(-5px)}
+.node:focus-visible{outline-color:var(--accent)}
+.node.sel{transform:rotate(var(--rot)) translateY(-10px);border-color:var(--accent);
+  box-shadow:0 16px 28px -14px var(--card-shadow),0 0 0 2px var(--accent)}
+.node .corner{position:absolute;font-family:var(--font-ui);font-weight:600;font-size:.82rem;line-height:.92;text-align:center}
+.node .corner.tl{top:7px;left:9px}
+.node .corner.br{bottom:7px;right:9px;transform:rotate(180deg)}
+.node .pip{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:2.1rem}
+.node.red .corner,.node.red .pip{color:var(--suit-red)}
+.node.black .corner,.node.black .pip{color:var(--suit-black)}
+.node.result{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  border-style:dashed;border-color:var(--accent-soft)}
+.node.result .val{font-family:var(--font-display);font-weight:400;font-size:2.7rem;line-height:.9;
+  color:var(--card-ink);font-variant-numeric:tabular-nums}
+.node.result .recipe{font-size:.62rem;color:var(--card-ink-soft);padding:0 7px;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+
+.ops{display:flex;gap:9px;justify-content:center}
+.op{width:50px;height:50px;border-radius:8px;cursor:pointer;font-family:var(--font-display);
+  font-size:1.6rem;line-height:1;background:transparent;color:var(--ink);border:1px solid var(--hair);
+  transition:background .12s ease,color .12s ease,border-color .12s ease;
+  outline:2.5px solid transparent;outline-offset:2px}
+.op:hover{border-color:var(--accent)}
+.op:focus-visible{outline-color:var(--accent)}
+.op.sel{background:var(--accent);color:var(--paper);border-color:var(--accent)}
+
+.status{min-height:1.5em;text-align:center;font-size:1rem;color:var(--ink)}
+.status.win{color:var(--good);font-weight:600}
+.status.dead{color:var(--ink-soft)}
+.status b{color:var(--accent);font-weight:600}
+.status .sol{font-family:var(--font-display);font-size:1.15rem;font-style:italic}
+
+.controls{display:flex;gap:18px;align-items:center;justify-content:center;flex-wrap:wrap}
+.link{font:inherit;font-size:.92rem;color:var(--ink-soft);background:none;border:0;cursor:pointer;
+  padding:2px 0;border-bottom:1px solid transparent}
+.link:hover:not(:disabled){color:var(--ink);border-color:var(--ink-soft)}
+.link:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px}
+.link:disabled{opacity:.38;cursor:not-allowed}
+.deal{font:inherit;font-weight:600;font-size:.95rem;cursor:pointer;color:var(--paper);
+  background:var(--ink);border:1px solid var(--ink);border-radius:999px;padding:9px 22px}
+.deal:hover{background:var(--accent);border-color:var(--accent)}
+.deal:focus-visible{outline:2.5px solid var(--accent);outline-offset:3px}
+
+.opt{display:flex;justify-content:center;color:var(--ink-soft);font-size:.82rem}
+.opt label{display:inline-flex;gap:7px;align-items:center;cursor:pointer}
+.opt input{accent-color:var(--accent)}
+
+footer{color:var(--ink-soft);font-size:.8rem;line-height:1.7;text-align:center;text-wrap:balance}
+footer kbd{font:inherit;color:var(--ink);border-bottom:1px solid var(--hair);padding:0 2px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (max-width:420px){
+  .node{width:76px;height:106px}.node .pip{font-size:1.7rem}
+  .node.result .val{font-size:2.1rem}.op{width:46px;height:46px;font-size:1.4rem}
+}
+</style>
+
+<div class="wrap">
+  <div class="mast">
+    <span class="eyebrow">A card puzzle</span>
+    <h1>Twenty-Four</h1>
+    <p class="lede">You're dealt four cards. Combine them with <b>+ &minus; &times; &divide;</b>, using each one exactly once, to land on <b>24</b>.</p>
+  </div>
+
+  <hr class="rule">
+
+  <div class="topline">
+    <div class="scores">
+      <span>Solved <b id="s-solved">0</b></span>
+      <span>Streak <b id="s-streak">0</b></span>
+      <span>Best <b id="s-best">0</b></span>
+      <span>Time <b id="s-time">0:00</b></span>
+    </div>
+    <div class="tright">
+      <button class="theme-btn" id="theme" type="button">Switch theme</button>
+    </div>
+  </div>
+
+  <section class="field" aria-label="Play area">
+    <div class="board" id="board" aria-label="Your cards"></div>
+    <div class="ops" id="ops" role="group" aria-label="Operators"></div>
+    <p class="status" id="status">Loading the solver&hellip;</p>
+    <div class="controls">
+      <button class="link" id="undo" type="button">Undo</button>
+      <button class="link" id="reset" type="button">Reset</button>
+      <button class="link" id="hint" type="button">Hint</button>
+      <button class="link" id="solve" type="button">Show solution</button>
+      <button class="deal" id="deal" type="button">Deal new hand</button>
+    </div>
+    <div class="opt">
+      <label><input type="checkbox" id="solvable" checked> Only deal hands that can make 24</label>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <footer>
+    A&nbsp;=&nbsp;1, J&nbsp;=&nbsp;11, Q&nbsp;=&nbsp;12, K&nbsp;=&nbsp;13. Keys: <kbd>1</kbd>&ndash;<kbd>4</kbd> cards, <kbd>+ &minus; * /</kbd> operators, <kbd>u</kbd>&nbsp;undo, <kbd>n</kbd>&nbsp;new hand.
+  </footer>
+</div>
+
+<script>
+"use strict";
+// fractions, so landing exactly on 24 is unambiguous
+function gcd(a,b){a=Math.abs(a);b=Math.abs(b);while(b){const t=a%b;a=b;b=t;}return a||1;}
+function fr(n,d){if(d===undefined)d=1;if(d<0){n=-n;d=-d;}const g=gcd(n,d);return{n:n/g,d:d/g};}
+function add(a,b){return fr(a.n*b.d+b.n*a.d,a.d*b.d);}
+function sub(a,b){return fr(a.n*b.d-b.n*a.d,a.d*b.d);}
+function mul(a,b){return fr(a.n*b.n,a.d*b.d);}
+function div(a,b){return b.n===0?null:fr(a.n*b.d,a.d*b.n);}
+function is24(f){return f&&f.n===24*f.d;}
+function frText(f){return f.d===1?String(f.n):f.n+"/"+f.d;}
+function strip(e){return e&&e[0]==="("&&e[e.length-1]===")"?e.slice(1,-1):e;}
+
+// the solver is main.c compiled to wasm; read its answer string out of memory
+let E=null, engineName="loading";       // the wasm exports: solve, answer, memory
+function wasmSolution(a,b,c,d){
+  const len=E.solve(a,b,c,d);
+  if(len<0)return null;
+  const mem=new Uint8Array(E.memory.buffer), p=E.answer();
+  let s=""; for(let i=0;i<len;i++) s+=String.fromCharCode(mem[p+i]);
+  return s.replace(/\*/g,"×").replace(/\//g,"÷").replace(/-/g,"−"); // main.c prints - * /
+}
+// fallback for anything that won't run the wasm
+function jsSolve(vals){
+  function rec(ns){
+    if(ns.length===1)return is24(ns[0].v)?ns[0].e:null;
+    for(let i=0;i<ns.length;i++)for(let j=i+1;j<ns.length;j++){
+      const a=ns[i],b=ns[j],rest=ns.filter((_,k)=>k!==i&&k!==j);
+      const c=[{v:add(a.v,b.v),e:"("+a.e+" + "+b.e+")"},{v:mul(a.v,b.v),e:"("+a.e+" × "+b.e+")"},
+        {v:sub(a.v,b.v),e:"("+a.e+" − "+b.e+")"},{v:sub(b.v,a.v),e:"("+b.e+" − "+a.e+")"},
+        {v:div(a.v,b.v),e:"("+a.e+" ÷ "+b.e+")"},{v:div(b.v,a.v),e:"("+b.e+" ÷ "+a.e+")"}];
+      for(const x of c){if(x.v===null)continue;const r=rec(rest.concat([x]));if(r)return r;}
+    }
+    return null;
+  }
+  const s=rec(vals.map(x=>({v:fr(x),e:String(x)})));
+  return s?strip(s):null;
+}
+// four card values -> a solution string, or null
+function solveCards(vals){
+  return E ? wasmSolution(vals[0],vals[1],vals[2],vals[3]) : jsSolve(vals);
+}
+
+// deck
+const SUITS=[{s:"♠",c:"black"},{s:"♥",c:"red"},{s:"♦",c:"red"},{s:"♣",c:"black"}];
+const RANK={1:"A",11:"J",12:"Q",13:"K"};
+function rankLabel(n){return RANK[n]||String(n);}
+function deal(onlySolvable){
+  for(let t=0;t<4000;t++){
+    const used=new Set(),cards=[];
+    while(cards.length<4){
+      const idx=Math.floor(Math.random()*52);
+      if(used.has(idx))continue;used.add(idx);
+      cards.push({rank:(idx%13)+1,suit:SUITS[Math.floor(idx/13)]});
+    }
+    if(!onlySolvable||solveCards(cards.map(c=>c.rank)))return cards;
+  }
+  return null;
+}
+function tilt(){return (Math.random()*6-3).toFixed(2)+"deg";}
+
+// game state
+let origin=[],nodes=[],history=[],sel=null,op=null,won=false,uid=0;
+let solved=0,streak=0,best=0,seconds=0,timer=null;
+const $=id=>document.getElementById(id);
+try{const b=localStorage.getItem("tf-best");if(b)best=parseInt(b,10)||0;}catch(e){}
+function newNode(v,e,card,rot){return{id:++uid,v,e,card:card||null,rot:rot||tilt()};}
+
+function startDeal(){
+  const cards=deal($("solvable").checked);
+  if(!cards){setStatus("Couldn't find a solvable hand — tap Deal again.");return;}
+  origin=cards;
+  nodes=cards.map(c=>newNode(fr(c.rank),String(c.rank),c));
+  history=[];sel=null;op=null;won=false;
+  seconds=0;updateTime();startTimer();
+  setStatus("Tap a card, an operator, then another card.");
+  render();
+}
+function resetHand(){
+  nodes=origin.map(c=>newNode(fr(c.rank),String(c.rank),c));
+  history=[];sel=null;op=null;won=false;
+  setStatus("Tap a card, an operator, then another card.");render();
+}
+function snapshot(){history.push(nodes.map(n=>({id:n.id,v:n.v,e:n.e,card:n.card,rot:n.rot})));}
+function undo(){if(!history.length)return;nodes=history.pop();sel=null;op=null;won=false;setStatus("Keep going.");render();}
+
+function combine(aId,bId){
+  const a=nodes.find(n=>n.id===aId),b=nodes.find(n=>n.id===bId);
+  if(!a||!b)return;
+  let v,sym;
+  if(op==="+"){v=add(a.v,b.v);sym="+";}
+  else if(op==="−"){v=sub(a.v,b.v);sym="−";}
+  else if(op==="×"){v=mul(a.v,b.v);sym="×";}
+  else{v=div(a.v,b.v);sym="÷";}
+  if(v===null){setStatus("You can't divide by zero — try another move.");return;}
+  snapshot();
+  const merged=newNode(v,"("+a.e+" "+sym+" "+b.e+")",null,tilt());
+  nodes=nodes.filter(n=>n.id!==aId&&n.id!==bId).concat([merged]);
+  sel=null;op=null;
+  if(nodes.length===1){
+    if(is24(nodes[0].v))onWin();
+    else setStatus('That comes to <b>'+frText(nodes[0].v)+'</b>, not 24. Undo a step or reset the hand.',"dead");
+  }else setStatus("Nice — keep going.");
+  render();
+}
+function onWin(){
+  won=true;stopTimer();solved++;streak++;
+  if(streak>best){best=streak;try{localStorage.setItem("tf-best",String(best));}catch(e){}}
+  setStatus("That's 24 — solved in "+fmtTime(seconds)+". Deal a new hand?","win");
+  render();
+}
+
+function startTimer(){stopTimer();timer=setInterval(()=>{seconds++;updateTime();},1000);}
+function stopTimer(){if(timer){clearInterval(timer);timer=null;}}
+function fmtTime(s){return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");}
+function updateTime(){$("s-time").textContent=fmtTime(seconds);}
+
+function setStatus(html,cls){const el=$("status");el.innerHTML=html;el.className="status"+(cls?" "+cls:"");}
+function syncScores(){$("s-solved").textContent=solved;$("s-streak").textContent=streak;$("s-best").textContent=best;}
+
+function render(){
+  syncScores();
+  const board=$("board");board.innerHTML="";
+  nodes.forEach((n,i)=>{
+    const el=document.createElement("button");
+    el.type="button";el.className="node";el.style.setProperty("--rot",n.rot);
+    el.setAttribute("aria-label","card "+(i+1)+", value "+frText(n.v));
+    if(sel===n.id)el.classList.add("sel");
+    if(n.card){
+      el.classList.add(n.card.suit.c);
+      const lbl=rankLabel(n.card.rank),su=n.card.suit.s;
+      el.innerHTML='<span class="corner tl">'+lbl+'<br>'+su+'</span><span class="pip">'+su+
+                   '</span><span class="corner br">'+lbl+'<br>'+su+'</span>';
+    }else{
+      el.classList.add("result");
+      el.innerHTML='<span class="val">'+frText(n.v)+'</span><span class="recipe">'+strip(n.e)+'</span>';
+    }
+    el.addEventListener("click",()=>clickNode(n.id));
+    board.appendChild(el);
+  });
+  document.querySelectorAll(".op").forEach(b=>b.classList.toggle("sel",b.dataset.op===op));
+  $("undo").disabled=!history.length;
+  $("reset").disabled=!history.length&&!won;
+}
+
+function clickNode(id){
+  if(won)return;
+  if(sel===null){sel=id;render();return;}
+  if(sel===id){sel=null;render();return;}
+  if(op){combine(sel,id);return;}
+  sel=id;render();
+}
+function clickOp(o){if(won)return;op=(op===o)?null:o;render();}
+
+function buildOps(){
+  const names={"+":"plus","−":"minus","×":"times","÷":"divide"};
+  const row=$("ops");
+  ["+","−","×","÷"].forEach(o=>{
+    const b=document.createElement("button");
+    b.type="button";b.className="op";b.dataset.op=o;b.textContent=o;b.setAttribute("aria-label",names[o]);
+    b.addEventListener("click",()=>clickOp(o));row.appendChild(b);
+  });
+}
+function showSolution(reveal){
+  const sol=solveCards(origin.map(c=>c.rank));
+  if(sol)setStatus((reveal?"One solution: ":"Hint: ")+'<span class="sol">'+sol+' = 24</span>');
+  else setStatus("This hand can't make 24.","dead");
+}
+
+// buttons and keys
+buildOps();
+$("deal").addEventListener("click",startDeal);
+$("undo").addEventListener("click",undo);
+$("reset").addEventListener("click",resetHand);
+$("hint").addEventListener("click",()=>showSolution(false));
+$("solve").addEventListener("click",()=>showSolution(true));
+$("theme").addEventListener("click",()=>{
+  const r=document.documentElement,cur=r.getAttribute("data-theme");
+  const dark=cur?cur==="dark":matchMedia("(prefers-color-scheme:dark)").matches;
+  r.setAttribute("data-theme",dark?"light":"dark");
+});
+document.addEventListener("keydown",e=>{
+  const k=e.key;
+  if(k>="1"&&k<="4"){const n=nodes[parseInt(k,10)-1];if(n)clickNode(n.id);}
+  else if(k==="+")clickOp("+");
+  else if(k==="-")clickOp("−");
+  else if(k==="*"||k==="x"||k==="X")clickOp("×");
+  else if(k==="/")clickOp("÷");
+  else if(k==="u"||k==="U")undo();
+  else if(k==="n"||k==="N")startDeal();
+  else if(k==="r"||k==="R")resetHand();
+  else return;
+  e.preventDefault();
+});
+
+// load the wasm engine, then deal
+async function boot(){
+  try{
+    const resp=await fetch("solve.wasm");
+    if(!resp.ok)throw new Error("fetch "+resp.status);
+    const buf=await resp.arrayBuffer();
+    const {instance}=await WebAssembly.instantiate(buf,{});
+    if(typeof instance.exports.solve!=="function"||instance.exports.solve(3,3,8,8)<0)throw new Error("bad export");
+    E=instance.exports;engineName="C → WebAssembly";
+  }catch(e){
+    E=null;engineName="JavaScript (fallback)";
+  }
+  startDeal();
+}
+boot();
+</script>
